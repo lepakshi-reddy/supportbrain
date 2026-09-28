@@ -12,6 +12,7 @@ client = Hindsight(
     base_url=HINDSIGHT_BASE_URL
 )
 
+
 def remember(content: str, user_id: str):
     """
     Store useful customer information in Hindsight.
@@ -24,6 +25,7 @@ def remember(content: str, user_id: str):
             "user_id": user_id
         }
     )
+
 
 def recall(query: str, user_id: str):
     """

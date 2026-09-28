@@ -1,4 +1,4 @@
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = window.SUPPORTBRAIN_API_URL || "http://127.0.0.1:8000";
 
 // --------------------------------------------------
 // CUSTOMER
@@ -48,20 +48,17 @@ async function sendMessage() {
             })
         });
 
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
 
-        // Remove loading message
         loading.remove();
 
-        if (!data.success) {
-            addMessage("assistant", "Sorry, something went wrong.");
+        if (!response.ok || !data.success) {
+            const detail = data?.error || data?.detail || "Unknown backend error";
+            addMessage("assistant", `Backend error (${response.status || "network"}): ${detail}`);
             return;
         }
 
-        // Show AI response
         addMessage("assistant", data.answer);
-
-        // Show memories
         showMemories(data.memories);
 
     } catch (error) {
@@ -69,7 +66,7 @@ async function sendMessage() {
         loading.remove();
         addMessage(
             "assistant",
-            "Could not connect to SupportBrain. Make sure the backend is running."
+            `Could not connect to SupportBrain: ${error.message || "network error"}`
         );
     } finally {
         sendButton.disabled = false;
@@ -171,7 +168,7 @@ function newConversation() {
 // --------------------------------------------------
 // ENTER KEY
 // --------------------------------------------------
-messageInput.addEventListener("keydown", function(event) {
+messageInput.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
@@ -186,3 +183,4 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
