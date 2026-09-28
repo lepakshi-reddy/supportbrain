@@ -1,4 +1,4 @@
-const API_URL = window.SUPPORTBRAIN_API_URL || "http://127.0.0.1:8000";
+const API_URL = (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") ? "http://127.0.0.1:8000" : "";
 
 // --------------------------------------------------
 // CUSTOMER
@@ -62,7 +62,8 @@ async function sendMessage() {
         showMemories(data.memories);
 
     } catch (error) {
-        console.error(error);
+        console.error("Chat request failed:", error);
+        console.error(error?.stack || error);
         loading.remove();
         addMessage(
             "assistant",
