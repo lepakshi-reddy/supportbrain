@@ -61,6 +61,30 @@ def home():
         "message": "SupportBrain is running!"
     }
 
+
+@app.post("/train")
+def train_memory():
+    try:
+        try:
+            from .train import seed_supportbrain_knowledge
+        except ImportError:
+            from train import seed_supportbrain_knowledge
+
+        result = seed_supportbrain_knowledge()
+        return {
+            "success": True,
+            "message": "SupportBrain training data loaded.",
+            "stored": result.get("stored", 0),
+            "items": result.get("items", [])
+        }
+    except Exception as error:
+        print("TRAINING ERROR:")
+        print(error)
+        return {
+            "success": False,
+            "error": f"Training failed: {type(error).__name__}: {error}"
+        }
+
 # --------------------------------------------------
 # HEALTH CHECK
 # --------------------------------------------------

@@ -1,4 +1,6 @@
-from sqlalchemy import create_engine, Column, String, Integer
+from datetime import datetime
+
+from sqlalchemy import Column, DateTime, Integer, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = "sqlite:///./supportbrain.db"
@@ -16,6 +18,16 @@ class Customer(Base):
     user_id = Column(String, unique=True, index=True)
     name = Column(String, nullable=True)
     email = Column(String, nullable=True)
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    role = Column(String, default="user")
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # Create tables automatically when this file is imported
