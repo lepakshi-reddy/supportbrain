@@ -1,15 +1,21 @@
 import os
+import tempfile
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, create_engine
+from sqlalchemy import Column, DateTime, Integer, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./supportbrain.db")
+# Vercel Serverless environment has read-only filesystem except /tmp
+if os.environ.get("VERCEL"):
+    db_path = os.path.join(tempfile.gettempdir(), "supportbrain.db")
+    DATABASE_URL = f"sqlite:///{db_path}"
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./supportbrain.db")
 
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith(
-        "sqlite") else {}
+        "sqlite") else {},
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -31,11 +37,20 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(String, index=True)
     role = Column(String, default="user")
-    content = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
-# Create tables automatically when this file is imported
+class MemoryEntry(Base):
+    __tablename__ = "memory_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)
+    content = Column(Text, nullable=False)
+    source = Column(String, default="local")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 Base.metadata.create_all(bind=engine)
 
 

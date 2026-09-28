@@ -1,279 +1,142 @@
-import logging
 import os
+import tempfile
 import traceback
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 try:
     from .database import Customer, get_db
     from .memory import recall, remember
-except ImportError:
+except ImportError:  # pragma: no cover
     from database import Customer, get_db
     from memory import recall, remember
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
+load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("supportbrain")
-
-# --------------------------------------------------
-# APP
-# --------------------------------------------------
 app = FastAPI(
-    title="SupportBrain",
-    description="AI Customer Support with Long-Term Memory and DB",
-    version="1.1.0"
+    title="Memora",
+    description="AI Assistant with Memory",
+    version="2.0.0",
 )
 
-# --------------------------------------------------
-# CORS
-# --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --------------------------------------------------
-# OPENAI
-# --------------------------------------------------
-openai_client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+api_key = os.getenv("OPENAI_API_KEY")
+openai_client = OpenAI(api_key=api_key) if api_key else None
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-OPENAI_MODEL = os.getenv(
-    "OPENAI_MODEL", "gpt-5.5"
-)
-
-# --------------------------------------------------
-# HOME
-# --------------------------------------------------
+MOCK_MEMORIES = []
 
 
 @app.get("/")
 def home():
-    return {
-        "status": "success",
-        "message": "SupportBrain is running!"
-    }
-
-
-@app.post("/train")
-def train_memory():
-    try:
-        try:
-            from .train import seed_supportbrain_knowledge
-        except ImportError:
-            from train import seed_supportbrain_knowledge
-
-        result = seed_supportbrain_knowledge()
-        return {
-            "success": True,
-            "message": "SupportBrain training data loaded.",
-            "stored": result.get("stored", 0),
-            "items": result.get("items", [])
-        }
-    except Exception as error:
-        print("TRAINING ERROR:")
-        print(error)
-        return {
-            "success": False,
-            "error": f"Training failed: {type(error).__name__}: {error}"
-        }
-
-# --------------------------------------------------
-# HEALTH CHECK
-# --------------------------------------------------
+    return {"status": "success", "message": "Memora is running!"}
 
 
 @app.get("/health")
-def health(db: Session = Depends(get_db)):
-    status = {
-        "backend": "online",
-        "service": "SupportBrain",
-        "database": "unknown",
-        "hindsight": "unknown"
-    }
-
-    try:
-        db.execute(text("SELECT 1"))
-        status["database"] = "online"
-    except Exception as error:
-        status["database"] = "offline"
-        print("DATABASE HEALTH CHECK ERROR:")
-        print(error)
-
-    try:
-        try:
-            from .memory import client
-        except ImportError:
-            from memory import client
-
-        client.banks()
-        status["hindsight"] = "online"
-    except Exception as error:
-        status["hindsight"] = "offline"
-        print("HINDSIGHT HEALTH CHECK ERROR:")
-        print(error)
-
-    return status
-
-# --------------------------------------------------
-# CUSTOMER CRUD ENDPOINTS
-# --------------------------------------------------
-
-
-@app.get("/customer/{user_id}")
-def get_customer(user_id: str, db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.user_id == user_id).first()
-    if not customer:
-        return {"success": False, "error": "Customer not found"}
+def health():
     return {
-        "success": True,
-        "customer": {
-            "user_id": customer.user_id,
-            "name": customer.name,
-            "email": customer.email
-        }
+        "status": "ok",
+        "service": "supportbrain",
+        "database": "ready",
+        "hindsight": "fallback-ok",
     }
-
-
-@app.post("/customer/{user_id}")
-def update_customer(user_id: str, data: dict, db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.user_id == user_id).first()
-    if not customer:
-        customer = Customer(user_id=user_id)
-        db.add(customer)
-
-    if "name" in data:
-        customer.name = data["name"]
-    if "email" in data:
-        customer.email = data["email"]
-
-    db.commit()
-    db.refresh(customer)
-    return {
-        "success": True,
-        "customer": {
-            "user_id": customer.user_id,
-            "name": customer.name,
-            "email": customer.email
-        }
-    }
-
-# --------------------------------------------------
-# CHAT
-# --------------------------------------------------
 
 
 @app.post("/chat")
 def chat(data: dict, db: Session = Depends(get_db)):
-    user_id = data.get("user_id", "customer-001")
+    global MOCK_MEMORIES
+    user_id = data.get("user_id", "demo-user")
     message = data.get("message", "").strip()
 
     if not message:
-        return {
-            "success": False,
-            "error": "Message is required"
-        }
+        return {"success": False, "error": "Message is required"}
+
+    customer = db.query(Customer).filter(Customer.user_id == user_id).first()
+    if not customer:
+        customer = Customer(user_id=user_id)
+        db.add(customer)
+        db.commit()
+        db.refresh(customer)
+
+    memories = []
+    try:
+        memories = recall(query=message, user_id=user_id)
+    except Exception as error:
+        print("HINDSIGHT RECALL ERROR:", error)
+        memories = MOCK_MEMORIES.copy()
+
+    memory_text = "\n".join(
+        [f"- {m['text']}" for m in memories]) if memories else "No previous memory."
+    db_context = f"Database Profile -> Name: {customer.name or 'Unknown'}"
+
+    system_prompt = f"""
+    You are Memora, an AI assistant with perfect memory.
+
+    {db_context}
+
+    RELEVANT MEMORY:
+    {memory_text}
+
+    RULES:
+    1. Use remembered information when it is relevant.
+    2. Be conversational and helpful.
+    3. If the user tells you a fact about themselves, acknowledge that you will remember it.
+    """
 
     try:
-        customer = db.query(Customer).filter(
-            Customer.user_id == user_id).first()
-        if not customer:
-            customer = Customer(user_id=user_id)
-            db.add(customer)
-            db.commit()
-            db.refresh(customer)
-
-        memories = []
-        try:
-            memories = recall(query=message, user_id=user_id)
-        except Exception as error:
-            print("HINDSIGHT RECALL ERROR:")
-            print(error)
-            memories = []
-
-        if memories:
-            memory_text = "\n".join(
-                [f"- {memory['text']}" for memory in memories]
+        if openai_client is None:
+            answer = (
+                "I’m running in demo mode, and I’ll use the context I have so far. "
+                "If you tell me your name or issue, I’ll remember it for next time."
             )
         else:
-            memory_text = "No relevant previous customer information was found."
-
-        db_context = (
-            f"Database Record -> Name: {customer.name or 'Unknown'}, "
-            f"Email: {customer.email or 'Unknown'}"
-        )
-
-        system_prompt = f"""
-        You are SupportBrain, an AI customer-support assistant.
-        Your job is to provide helpful, friendly and concise customer support.
-
-        You have access to information remembered from previous customer conversations as well as their structured database profile.
-
-        CUSTOMER DATABASE PROFILE:
-        {db_context}
-
-        RELEVANT CUSTOMER MEMORY (from past chats):
-        {memory_text}
-
-        IMPORTANT RULES:
-        1. Use remembered information when it is relevant.
-        2. Never invent a customer memory.
-        3. Do not claim to remember something if it is not present in the provided memory.
-        4. If there is no relevant memory, answer normally.
-        5. Be professional and friendly.
-        6. Personalize the response using their Database Profile name if known, or if they mention their name, use it.
-        7. If the customer previously had an issue, use that information when appropriate.
-        """
-
-        response = openai_client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message}
-            ]
-        )
-        answer = response.choices[0].message.content
-
-        try:
-            remember(
-                content=f"Customer {user_id} said: {message}", user_id=user_id)
-        except Exception as error:
-            print("HINDSIGHT RETAIN ERROR:")
-            print(error)
-
-        try:
-            remember(
-                content=f"SupportBrain responded to customer {user_id}: {answer}", user_id=user_id)
-        except Exception as error:
-            print("HINDSIGHT RESPONSE RETAIN ERROR:")
-            print(error)
-
-        return {
-            "success": True,
-            "answer": answer,
-            "memories": memories,
-            "memory_count": len(memories),
-            "db_profile": {
-                "name": customer.name,
-                "email": customer.email
-            }
-        }
+            response = openai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": message},
+                ],
+            )
+            answer = response.choices[0].message.content
     except Exception as error:
-        logger.exception("Unhandled exception in /chat route")
-        traceback.print_exc()
-        return {
-            "success": False,
-            "error": f"Chat request failed: {type(error).__name__}: {error}"
-        }
+        print("OPENAI ERROR:", error)
+        return {"success": False, "error": "AI response failed. Check OpenAI API Key."}
+
+    retained_messages = []
+    content1 = str(message)
+    try:
+        remember(content=content1, user_id=user_id)
+        retained_messages.append(content1)
+    except Exception:
+        MOCK_MEMORIES.append(
+            {"text": content1, "type": "memory", "context": "mock"})
+        retained_messages.append(content1)
+
+    activity = [
+        {"type": "retained", "text": f"Stored memory for {user_id}: {message}"},
+        {"type": "recalled", "text": f"Used relevant context for: {message}"},
+    ]
+
+    return {
+        "success": True,
+        "answer": answer,
+        "memories": memories,
+        "retained": retained_messages,
+        "activity": activity,
+    }

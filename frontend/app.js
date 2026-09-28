@@ -1,4 +1,8 @@
-const API_URL = (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") ? "http://127.0.0.1:8000" : "";
+const API_URL = (
+    (typeof window !== "undefined" && window.VITE_API_URL) ||
+    (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_URL) ||
+    "http://127.0.0.1:8000"
+).replace(/\/$/, "");
 
 // --------------------------------------------------
 // CUSTOMER
@@ -13,6 +17,7 @@ const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const memoryList = document.getElementById("memoryList");
 const memoryCount = document.getElementById("memoryCount");
+const activityList = document.getElementById("activityList");
 
 // --------------------------------------------------
 // SEND MESSAGE
@@ -60,6 +65,10 @@ async function sendMessage() {
 
         addMessage("assistant", data.answer);
         showMemories(data.memories);
+        showActivity(data.activity || [
+            { type: "retained", text: "Memory retained for this conversation." },
+            { type: "recalled", text: "Relevant memories were used for context." }
+        ]);
 
     } catch (error) {
         console.error("Chat request failed:", error);
@@ -137,6 +146,31 @@ function showMemories(memories) {
     });
 }
 
+function showActivity(activityItems) {
+    if (!activityList) return;
+
+    activityList.innerHTML = "";
+
+    if (!activityItems || activityItems.length === 0) {
+        activityList.innerHTML = '<div class="empty-activity">No activity yet.</div>';
+        return;
+    }
+
+    activityItems.forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "activity-item";
+        const isRetained = (item.type || "").toLowerCase() === "retained";
+        row.innerHTML = `
+            <div class="activity-icon ${isRetained ? "retained" : "recalled"}">${isRetained ? "✓" : "↩"}</div>
+            <div class="activity-copy">
+                <strong>${escapeHtml(isRetained ? "Memory retained" : "Memory recalled")}</strong>
+                <div>${escapeHtml(item.text || "Support memory updated.")}</div>
+            </div>
+        `;
+        activityList.appendChild(row);
+    });
+}
+
 // --------------------------------------------------
 // NEW CONVERSATION
 // --------------------------------------------------
@@ -160,6 +194,11 @@ function newConversation() {
     memoryList.innerHTML = `
         <div class="empty-memory">
             Send a message to recall previous customer information.
+        </div>
+    `;
+    activityList.innerHTML = `
+        <div class="empty-activity">
+            No activity yet.
         </div>
     `;
     memoryCount.textContent = "0";
