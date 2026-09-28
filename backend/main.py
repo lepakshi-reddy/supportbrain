@@ -1,3 +1,4 @@
+import logging
 import os
 import traceback
 
@@ -18,6 +19,9 @@ except ImportError:
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("supportbrain")
+
 # --------------------------------------------------
 # APP
 # --------------------------------------------------
@@ -32,7 +36,8 @@ app = FastAPI(
 # --------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -266,6 +271,7 @@ def chat(data: dict, db: Session = Depends(get_db)):
             }
         }
     except Exception as error:
+        logger.exception("Unhandled exception in /chat route")
         traceback.print_exc()
         return {
             "success": False,
